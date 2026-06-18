@@ -1,0 +1,53 @@
+name: Deploy Images
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::399078540634:role/github-actions-three-tier
+          aws-region: us-west-1
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region us-west-1 | docker login --username AWS --password-stdin 399078540634.dkr.ecr.us-west-1.amazonaws.com
+
+      - name: Build and push cost-service
+        run: |
+          docker build -t ops-dashboard-cost-service services/cost-service
+          docker tag ops-dashboard-cost-service:latest 399078540634.dkr.ecr.us-west-1.amazonaws.com/ops-dashboard-cost-service:latest
+          docker push 399078540634.dkr.ecr.us-west-1.amazonaws.com/ops-dashboard-cost-service:latest
+
+      - name: Build and push resource-service
+        run: |
+          docker build -t ops-dashboard-resource-service services/resource-service
+          docker tag ops-dashboard-resource-service:latest 399078540634.dkr.ecr.us-west-1.amazonaws.com/ops-dashboard-resource-service:latest
+          docker push 399078540634.dkr.ecr.us-west-1.amazonaws.com/ops-dashboard-resource-service:latest
+
+      - name: Build and push alert-service
+        run: |
+          docker build -t ops-dashboard-alert-service services/alert-service
+          docker tag ops-dashboard-alert-service:latest 399078540634.dkr.ecr.us-west-1.amazonaws.com/ops-dashboard-alert-service:latest
+          docker push 399078540634.dkr.ecr.us-west-1.amazonaws.com/ops-dashboard-alert-service:latest
+
+      - name: Force new ECS deployments
+        run: |
+          aws ecs update-service --cluster ops-dashboard-cluster --service ops-dashboard-cost-service --force-new-deployment --region us-west-1
+          aws ecs update-service --cluster ops-dashboard-cluster --service ops-dashboard-resource-service --force-new-deployment --region us-west-1
+          aws ecs update-service --cluster ops-dashboard-cluster --service ops-dashboard-alert-service --force-new-deployment --region us-west-1
