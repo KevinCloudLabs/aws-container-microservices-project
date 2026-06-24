@@ -10,14 +10,13 @@ CORS(app)
 def health():
     return jsonify({'status': 'healthy', 'service': 'cost-service'})
 
-@app.route('/cost/summary', methods=['GET'])
+@app.route('/api/cost/summary', methods=['GET'])
 def get_cost_summary():
     client = boto3.client('ce', region_name='us-east-1')
 
     today = date.today()
     yesterday = today - timedelta(days=1)
 
-    # From January 1st to yesterday (Cost Explorer excludes today)
     start = '2026-01-01'
     end = yesterday.strftime('%Y-%m-%d')
 
@@ -55,4 +54,3 @@ def get_cost_summary():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
-

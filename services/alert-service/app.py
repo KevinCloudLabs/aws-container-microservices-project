@@ -11,7 +11,7 @@ REGION = 'us-west-1'
 def health():
     return jsonify({'status': 'healthy', 'service': 'alert-service'})
 
-@app.route('/alerts/alarms', methods=['GET'])
+@app.route('/api/alerts/alarms', methods=['GET'])
 def get_alarms():
     cloudwatch = boto3.client('cloudwatch', region_name=REGION)
 
@@ -39,7 +39,7 @@ def get_alarms():
         'alarms': alarms
     })
 
-@app.route('/alerts/notify', methods=['POST'])
+@app.route('/api/alerts/notify', methods=['POST'])
 def send_notification():
     sns = boto3.client('sns', region_name=REGION)
     data = request.json

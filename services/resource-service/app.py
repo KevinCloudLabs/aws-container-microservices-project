@@ -11,13 +11,12 @@ REGION = 'us-west-1'
 def health():
     return jsonify({'status': 'healthy', 'service': 'resource-service'})
 
-@app.route('/resources/summary', methods=['GET'])
+@app.route('/api/resources/summary', methods=['GET'])
 def get_resources():
     ec2 = boto3.client('ec2', region_name=REGION)
     rds = boto3.client('rds', region_name=REGION)
     s3 = boto3.client('s3', region_name=REGION)
 
-    # EC2 Instances
     ec2_response = ec2.describe_instances(
         Filters=[{'Name': 'instance-state-name', 'Values': ['running', 'stopped']}]
     )
@@ -33,7 +32,6 @@ def get_resources():
                 'az': instance['Placement']['AvailabilityZone']
             })
 
-    # RDS Instances
     rds_response = rds.describe_db_instances()
     databases = []
     for db in rds_response['DBInstances']:
@@ -44,7 +42,6 @@ def get_resources():
             'class': db['DBInstanceClass']
         })
 
-    # S3 Buckets
     s3_response = s3.list_buckets()
     buckets = []
     for bucket in s3_response['Buckets']:
