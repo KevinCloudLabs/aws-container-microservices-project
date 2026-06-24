@@ -55,10 +55,11 @@ resource "aws_eip" "nat" {
 }
 
 resource "aws_nat_gateway" "main" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public_1.id
-  tags          = { Name = "${var.project_name}-nat" }
-  depends_on    = [aws_internet_gateway.main]
+  availability_mode = "regional"
+  connectivity_type = "public"
+  allocation_id     = aws_eip.nat.id
+  vpc_id            = aws_vpc.main.id
+  tags              = { Name = "${var.project_name}-nat" }
 }
 
 resource "aws_route_table" "public" {
@@ -322,11 +323,80 @@ resource "aws_lb_listener" "http" {
   protocol          = "HTTP"
 
   default_action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
+    type = "fixed-response"
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "403 Forbidden"
+      status_code  = "403"
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "cost_http" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 1
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.cost.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/api/cost/*"]
+    }
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Origin-Verify"
+      values           = [var.origin_verify_secret]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "resource_http" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 2
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.resource.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/api/resources/*"]
+    }
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Origin-Verify"
+      values           = [var.origin_verify_secret]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "alert_http" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 3
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.alert.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/api/alerts/*"]
+    }
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Origin-Verify"
+      values           = [var.origin_verify_secret]
     }
   }
 }
@@ -656,7 +726,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     custom_origin_config {
       http_port              = 80
       https_port             = 443
-      origin_protocol_policy = "https-only"
+      origin_protocol_policy = "http-only"
       origin_ssl_protocols   = ["TLSv1.2"]
     }
 
