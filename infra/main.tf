@@ -30,9 +30,35 @@ resource "aws_subnet" "public_2" {
   tags                    = { Name = "${var.project_name}-public-subnet-2" }
 }
 
+resource "aws_subnet" "private_1" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.3.0/24"
+  availability_zone = "${var.aws_region}a"
+  tags              = { Name = "${var.project_name}-private-subnet-1" }
+}
+
+resource "aws_subnet" "private_2" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.4.0/24"
+  availability_zone = "${var.aws_region}c"
+  tags              = { Name = "${var.project_name}-private-subnet-2" }
+}
+
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
   tags   = { Name = "${var.project_name}-igw" }
+}
+
+resource "aws_eip" "nat" {
+  domain = "vpc"
+  tags   = { Name = "${var.project_name}-nat-eip" }
+}
+
+resource "aws_nat_gateway" "main" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public_1.id
+  tags          = { Name = "${var.project_name}-nat" }
+  depends_on    = [aws_internet_gateway.main]
 }
 
 resource "aws_route_table" "public" {
@@ -46,6 +72,17 @@ resource "aws_route_table" "public" {
   tags = { Name = "${var.project_name}-public-rt" }
 }
 
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.main.id
+  }
+
+  tags = { Name = "${var.project_name}-private-rt" }
+}
+
 resource "aws_route_table_association" "public_1" {
   subnet_id      = aws_subnet.public_1.id
   route_table_id = aws_route_table.public.id
@@ -54,6 +91,16 @@ resource "aws_route_table_association" "public_1" {
 resource "aws_route_table_association" "public_2" {
   subnet_id      = aws_subnet.public_2.id
   route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "private_1" {
+  subnet_id      = aws_subnet.private_1.id
+  route_table_id = aws_route_table.private.id
+}
+
+resource "aws_route_table_association" "private_2" {
+  subnet_id      = aws_subnet.private_2.id
+  route_table_id = aws_route_table.private.id
 }
 
 resource "aws_security_group" "alb" {
@@ -224,8 +271,7 @@ resource "aws_lb" "main" {
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets            = [aws_subnet.public_1.id, aws_subnet.public_2.id]
-
-  tags = { Name = "${var.project_name}-alb" }
+  tags               = { Name = "${var.project_name}-alb" }
 }
 
 resource "aws_lb_target_group" "cost" {
@@ -276,55 +322,11 @@ resource "aws_lb_listener" "http" {
   protocol          = "HTTP"
 
   default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.cost.arn
-  }
-}
-
-resource "aws_lb_listener_rule" "cost" {
-  listener_arn = aws_lb_listener.http.arn
-  priority     = 1
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.cost.arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/cost/*"]
-    }
-  }
-}
-
-resource "aws_lb_listener_rule" "resource" {
-  listener_arn = aws_lb_listener.http.arn
-  priority     = 2
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.resource.arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/resources/*"]
-    }
-  }
-}
-
-resource "aws_lb_listener_rule" "alert" {
-  listener_arn = aws_lb_listener.http.arn
-  priority     = 3
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.alert.arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/alerts/*"]
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
     }
   }
 }
@@ -332,8 +334,7 @@ resource "aws_lb_listener_rule" "alert" {
 resource "aws_acm_certificate" "alb" {
   domain_name       = "*.kevinlutes.com"
   validation_method = "DNS"
-
-  tags = { Name = "${var.project_name}-alb-cert" }
+  tags              = { Name = "${var.project_name}-alb-cert" }
 
   lifecycle {
     create_before_destroy = true
@@ -370,12 +371,16 @@ resource "aws_lb_listener" "https" {
   certificate_arn   = aws_acm_certificate_validation.alb.certificate_arn
 
   default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.cost.arn
+    type = "fixed-response"
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "403 Forbidden"
+      status_code  = "403"
+    }
   }
 }
 
-resource "aws_lb_listener_rule" "cost_https" {
+resource "aws_lb_listener_rule" "cost" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 1
 
@@ -386,12 +391,19 @@ resource "aws_lb_listener_rule" "cost_https" {
 
   condition {
     path_pattern {
-      values = ["/cost/*"]
+      values = ["/api/cost/*"]
+    }
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Origin-Verify"
+      values           = [var.origin_verify_secret]
     }
   }
 }
 
-resource "aws_lb_listener_rule" "resource_https" {
+resource "aws_lb_listener_rule" "resource" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 2
 
@@ -402,12 +414,19 @@ resource "aws_lb_listener_rule" "resource_https" {
 
   condition {
     path_pattern {
-      values = ["/resources/*"]
+      values = ["/api/resources/*"]
+    }
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Origin-Verify"
+      values           = [var.origin_verify_secret]
     }
   }
 }
 
-resource "aws_lb_listener_rule" "alert_https" {
+resource "aws_lb_listener_rule" "alert" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 3
 
@@ -418,7 +437,14 @@ resource "aws_lb_listener_rule" "alert_https" {
 
   condition {
     path_pattern {
-      values = ["/alerts/*"]
+      values = ["/api/alerts/*"]
+    }
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Origin-Verify"
+      values           = [var.origin_verify_secret]
     }
   }
 }
@@ -511,9 +537,9 @@ resource "aws_ecs_service" "cost" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = [aws_subnet.public_1.id, aws_subnet.public_2.id]
+    subnets          = [aws_subnet.private_1.id, aws_subnet.private_2.id]
     security_groups  = [aws_security_group.ecs.id]
-    assign_public_ip = true
+    assign_public_ip = false
   }
 
   load_balancer {
@@ -531,9 +557,9 @@ resource "aws_ecs_service" "resource" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = [aws_subnet.public_1.id, aws_subnet.public_2.id]
+    subnets          = [aws_subnet.private_1.id, aws_subnet.private_2.id]
     security_groups  = [aws_security_group.ecs.id]
-    assign_public_ip = true
+    assign_public_ip = false
   }
 
   load_balancer {
@@ -551,9 +577,9 @@ resource "aws_ecs_service" "alert" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = [aws_subnet.public_1.id, aws_subnet.public_2.id]
+    subnets          = [aws_subnet.private_1.id, aws_subnet.private_2.id]
     security_groups  = [aws_security_group.ecs.id]
-    assign_public_ip = true
+    assign_public_ip = false
   }
 
   load_balancer {
@@ -623,10 +649,36 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
   }
 
+  origin {
+    domain_name = aws_lb.main.dns_name
+    origin_id   = "alb-api"
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+
+    custom_header {
+      name  = "X-Origin-Verify"
+      value = var.origin_verify_secret
+    }
+  }
+
   default_cache_behavior {
     allowed_methods        = ["GET", "HEAD"]
     cached_methods         = ["GET", "HEAD"]
     target_origin_id       = "s3-frontend"
+    viewer_protocol_policy = "redirect-to-https"
+    cache_policy_id        = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/api/*"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD"]
+    target_origin_id       = "alb-api"
     viewer_protocol_policy = "redirect-to-https"
     cache_policy_id        = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
   }
@@ -659,17 +711,5 @@ resource "aws_route53_record" "dashboard" {
     name                   = aws_cloudfront_distribution.frontend.domain_name
     zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
     evaluate_target_health = false
-  }
-}
-
-resource "aws_route53_record" "api" {
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = "api.kevinlutes.com"
-  type    = "A"
-
-  alias {
-    name                   = aws_lb.main.dns_name
-    zone_id                = aws_lb.main.zone_id
-    evaluate_target_health = true
   }
 }

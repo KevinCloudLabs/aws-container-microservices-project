@@ -238,7 +238,8 @@ tr:hover td { background: #1c2128; }
 </div>
 
 <script>
-const ALB_URL = 'https://api.kevinlutes.com';
+// API calls use relative paths — CloudFront routes /api/* to the ALB
+// No CORS needed since frontend and API share the same domain (dashboard.kevinlutes.com)
 
 function showTab(tab, event) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -251,7 +252,7 @@ async function loadCost() {
     const el = document.getElementById('cost-content');
     el.innerHTML = '<div class="loading">Loading cost data...</div>';
     try {
-        const res = await fetch(`${ALB_URL}/cost/summary`);
+        const res = await fetch('/api/cost/summary');
         const data = await res.json();
 
         let rows = data.breakdown.map(item => `
@@ -289,7 +290,7 @@ async function loadResources() {
     const el = document.getElementById('resources-content');
     el.innerHTML = '<div class="loading">Loading resource data...</div>';
     try {
-        const res = await fetch(`${ALB_URL}/resources/summary`);
+        const res = await fetch('/api/resources/summary');
         const data = await res.json();
 
         const ec2Rows = data.ec2_instances.map(i => `
@@ -358,7 +359,7 @@ async function loadAlerts() {
     const el = document.getElementById('alerts-content');
     el.innerHTML = '<div class="loading">Loading alert data...</div>';
     try {
-        const res = await fetch(`${ALB_URL}/alerts/alarms`);
+        const res = await fetch('/api/alerts/alarms');
         const data = await res.json();
 
         const rows = data.alarms.map(a => `
@@ -410,4 +411,3 @@ document.addEventListener('DOMContentLoaded', () => {
 
 </body>
 </html>
-
