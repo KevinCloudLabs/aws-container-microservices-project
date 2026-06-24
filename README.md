@@ -150,14 +150,12 @@ Terraform runs locally. The pipelines own application and frontend deployment on
 ### ALB
 ![ALB Target Groups](screenshots/alb-target-groups.png)
 
-### IAM
-![IAM Roles](screenshots/iam-roles.png)
+### Security Groups
+![IAM Roles](screenshots/security-groups.png)
 
 ### CloudFront & Route 53
 ![CloudFront Behaviors](screenshots/cloudfront-behaviors.png)
 ![Route 53](screenshots/route53.png)
-
-</details>
 
 ---
 
